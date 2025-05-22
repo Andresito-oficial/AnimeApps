@@ -1,0 +1,17 @@
+[Icon Theme]
+Name=AnimeApps
+Inherits=Yaru,AnimeIcons,AnimeIcons-dark,Breeze
+
+Directories=apps,places/scalable,
+
+[apps]
+Size=128
+Context=Applications
+Type=Scalable
+MinSize=16
+MaxSize=512
+
+[places/scalable]
+Size=128
+Context=Places
+Type=Scalable
