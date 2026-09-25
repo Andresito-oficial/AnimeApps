@@ -14,71 +14,42 @@ jobs:
   update-pling:
     runs-on: windows-2022
     steps:
-      - name: Procesar y publicar en Pling usando Node.js
-        uses: actions/github-script@v7
+      - name: Obtener informacion del release y changelog en Windows
+        shell: cmd
+        run: |
+          SET "INPUT_VERSION=${{ github.event.inputs.manual_version }}"
+          
+          IF NOT "%INPUT_VERSION%"=="" (
+            SET "VERSION=%INPUT_VERSION%"
+            SET "RELEASE_URL=${{ github.server_url }}/${{ github.repository }}/releases/tag/%INPUT_VERSION%"
+            SET "CHANGELOG=Actualizacion manual desde GitHub Actions en Windows Server."
+          ) ELSE (
+            SET "VERSION=${{ github.event.release.tag_name }}"
+            SET "RELEASE_URL=${{ github.event.release.html_url }}"
+            SET "CHANGELOG=Nueva version publicada en GitHub."
+          )
+          
+          REM Guardamos las variables de forma limpia en el entorno de GitHub
+          echo VERSION=%VERSION%>>%GITHUB_ENV%
+          echo RELEASE_URL=%RELEASE_URL%>>%GITHUB_ENV%
+          echo CHANGELOG=%CHANGELOG%>>%GITHUB_ENV%
+
+      - name: Actualizar registro en Pling via curl nativo de Windows Server
+        shell: cmd
         env:
-          PLING_USER: \${{ secrets.PLING_USER }}
-          PLING_PASSWORD: \${{ secrets.PLING_PASSWORD }}
-          PRODUCT_ID: \${{ vars.PRODUCT_ID }}
-        with:
-          script: |
-            const crypto = require('crypto');
-
-            // 1. Obtener versión y URL del release
-            let version = "\${{ github.event.inputs.manual_version }}";
-            let releaseUrl = "";
-            let changelog = "";
-
-            if (version !== "") {
-              releaseUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/releases/tag/${version}`;
-              changelog = `Actualizacion manual desde GitHub Actions en Windows Server para la version ${version}.`;
-            } else {
-              version = context.payload.release ? context.payload.release.tag_name : "";
-              releaseUrl = context.payload.release ? context.payload.release.html_url : "";
-              changelog = context.payload.release ? context.payload.release.body : "";
-            }
-
-            if (!version) {
-              core.setFailed("No se pudo determinar la version. Escribela manualmente al lanzar el workflow.");
-              return;
-            }
-
-            // 2. Formatear el changelog para Pling (cambiar saltos de linea por <br>)
-            const changelogHtml = changelog.replace(/\r?\n/g, '<br>');
-            const descripcionFinal = `Icon pack updated to version ${version}.<br><br><strong>Changelog:</strong><br>${changelogHtml}<br><br>🔗 Download directly from GitHub: ${releaseUrl}`;
-
-            // 3. Crear cabecera de autenticacion Basic Auth (Cifra de forma segura tu contraseña con '\$')
-            const authString = `${process.env.PLING_USER}:${process.env.PLING_PASSWORD}`;
-            const base64Auth = Buffer.from(authString).toString('base64');
-
-            // 4. Preparar los datos en formato x-www-form-urlencoded
-            const params = new URLSearchParams();
-            params.append('version', version);
-            params.append('description', descripcionFinal);
-            params.append('downloadlinkover', '1');
-            params.append('downloadlink1', releaseUrl);
-
-            const url = `https://opendesktop.org{process.env.PRODUCT_ID}`;
-
-            console.log(`Enviando actualizacion de version ${version} a Pling (ID: ${process.env.PRODUCT_ID})...`);
-
-            // 5. Lanzar la peticion HTTP POST nativa
-            fetch(url, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Basic ${base64Auth}`,
-                'Content-Type': 'application/x-www-form-urlencoded'
-              },
-              body: params.toString()
-            })
-            .then(res => {
-              console.log(`Respuesta de la API de Pling (Codigo HTTP): ${res.status}`);
-              if (res.status >= 400) {
-                core.setFailed(`Error en la API de Pling: Codigo ${res.status}`);
-              } else {
-                console.log("¡Sincronizacion con Pling completada con exito!");
-              }
-            })
-            .catch(err => {
-              core.setFailed(`Fallo en la conexion: ${err.message}`);
-            });
+          USER_SECRET: ${{ secrets.PLING_USER }}
+          PASS_SECRET: ${{ secrets.PLING_PASSWORD }}
+          PROD_ID: ${{ vars.PRODUCT_ID }}
+        run: |
+          REM Formateamos el bloque de texto final usando variables clasicas de CMD
+          SET "DESCRIPCION_FINAL=Icon pack updated to version %VERSION%.<br><br><strong>Changelog:</strong><br>%CHANGELOG%<br><br>🔗 Download directly from GitHub: %RELEASE_URL%"
+          
+          REM Ejecutamos curl directamente usando la cabecera --user. 
+          REM CMD no interpreta el signo '$' de tu contraseña, por lo que le llegara a Pling perfecta.
+          curl --request POST ^
+            --url "https://opendesktop.org%" ^
+            --user "%USER_SECRET%:%PASS_SECRET%" ^
+            --data-urlencode "version=%VERSION%" ^
+            --data-urlencode "description=%DESCRIPCION_FINAL%" ^
+            --data-urlencode "downloadlinkover=1" ^
+            --data-urlencode "downloadlink1=%RELEASE_URL%"
