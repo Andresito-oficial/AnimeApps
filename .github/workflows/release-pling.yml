@@ -32,13 +32,13 @@ jobs:
           "@
           }
           
-          # Guardamos las variables en el entorno global de GitHub Actions
-          Add-Content -Path \(env:GITHUB_ENV -Value "VERSION=\)version"
-          Add-Content -Path \(env:GITHUB_ENV -Value "RELEASE_URL=\)releaseUrl"
+          # Guardamos las variables en el entorno de GitHub sin usar paréntesis raros
+          "VERSION=version" | Out-File -FilePath env:GITHUB_ENV -Append -Encoding utf8
+          "RELEASE_URL=releaseUrl" | Out-File -FilePath env:GITHUB_ENV -Append -Encoding utf8
           
-          # Convertimos los saltos de línea de Windows e independientes a formato HTML <br> para Pling
+          # Convertimos los saltos de línea a formato HTML <br> para Pling
           changelogHtml = changelog -replace "`r`n", "<br>" -replace "`n", "<br>"
-          Add-Content -Path \(env:GITHUB_ENV -Value "CHANGELOG=\)changelogHtml"
+          "CHANGELOG=changelogHtml" | Out-File -FilePath env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Actualizar registro y Changelog en Pling vía API OCS
         shell: pwsh
@@ -47,8 +47,8 @@ jobs:
           PASS_SECRET: \${{ secrets.PLING_PASSWORD }}
           PROD_ID: \${{ vars.PRODUCT_ID }}
         run: |
-          # Formateamos la descripción final uniendo las variables del paso anterior
-          \$descripcionFinal = "Icon pack updated to version (env:VERSION).<br><br><strong>Changelog:</strong><br>(env:CHANGELOG)<br><br>🔗 Download directly from GitHub: (env:RELEASE_URL)"
+          # Formateamos la descripción final uniendo las variables del entorno
+          \$v = \(env:VERSION\)c = \(env:CHANGELOG\)r = \(env:RELEASE_URL\)descripcionFinal = "Icon pack updated to version v.<br><br><strong>Changelog:</strong><br>c<br><br>🔗 Download directly from GitHub: \$r"
           
           # Construimos la cabecera HTTP Basic Auth cifrando el par usuario:contraseña en Base64
           # Esto evita por completo que el signo '\$' de tu contraseña rompa el script
@@ -70,7 +70,8 @@ jobs:
           }
           
           # URL definitiva de la API apuntando al endpoint de edición del producto
-          \$url = "https://opendesktop.org"
+          prodId = env:PROD_ID
+          url = "https://opendesktop.org"
           
           # Lanzamos la petición REST nativa de Windows Server
           Invoke-RestMethod -Uri \$url -Method Post -Headers headers -Body body
