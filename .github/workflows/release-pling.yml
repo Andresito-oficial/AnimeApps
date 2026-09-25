@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       manual_version:
-        description: 'Versión (ej. v1.0.1) - Dejar en blanco si usas el último Release'
+        description: 'Version (ej. v1.0.1) - Dejar en blanco si usas el ultimo Release'
         required: false
         default: ''
 
@@ -14,65 +14,71 @@ jobs:
   update-pling:
     runs-on: windows-2022
     steps:
-      - name: Obtener información del release y changelog en Windows
-        id: get_release
-        shell: pwsh
-        run: |
-          # En PowerShell todas las variables nacen con \$
-          \(inputVersion = "\){{ github.event.inputs.manual_version }}"
-          
-          if (\$inputVersion -ne "") {
-            \(version =\)inputVersion
-            \(releaseUrl = "\){{ github.server_url }}/\({{ github.repository }}/releases/tag/\)inputVersion"
-            \$changelog = "Actualización manual desde GitHub Actions en Windows Server para la versión \$inputVersion."
-          } else {
-            \(version = "\){{ github.event.release.tag_name }}"
-            \(releaseUrl = "\){{ github.event.release.html_url }}"
-            \$changelog = @"
-          \${{ github.event.release.body }}
-          "@
-          }
-          
-          # Guardamos las variables en el entorno global de GitHub Actions de forma limpia
-          "VERSION=\(version" \vert{} Out-File -FilePath \)env:GITHUB_ENV -Append -Encoding utf8
-          "RELEASE_URL=\(releaseUrl" \vert{} Out-File -FilePath \)env:GITHUB_ENV -Append -Encoding utf8
-          
-          # Convertimos los saltos de línea a formato HTML <br> para Pling
-          \(changelogHtml =\)changelog -replace "`r`n", "<br>" -replace "`n", "<br>"
-          "CHANGELOG=\(changelogHtml" \vert{} Out-File -FilePath \)env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Actualizar registro y Changelog en Pling vía API OCS
-        shell: pwsh
+      - name: Procesar y publicar en Pling usando Node.js
+        uses: actions/github-script@v7
         env:
-          USER_SECRET: \${{ secrets.PLING_USER }}
-          PASS_SECRET: \${{ secrets.PLING_PASSWORD }}
-          PROD_ID: \${{ vars.PRODUCT_ID }}
-        run: |
-          # Formateamos la descripción final uniendo las variables del entorno
-          \$v = \(env:VERSION\)c = \(env:CHANGELOG\)r = \(env:RELEASE_URL\)descripcionFinal = "Icon pack updated to version \(v.<br><br><strong>Changelog:</strong><br>\)c<br><br>🔗 Download directly from GitHub: \$r"
-          
-          # Construimos la cabecera HTTP Basic Auth cifrando el par usuario:contraseña en Base64
-          # Esto evita por completo que el signo '\$' de tu contraseña rompa el script
-          \$pair = "\((\)env:USER_SECRET):\((\)env:PASS_SECRET)"
-          \(bytes = [System.Text.Encoding]::ASCII.GetBytes(\)pair)
-          \(base64 = [System.Convert]::ToBase64String(\)bytes)
-          \(basicAuth = "Basic \)base64"
-          
-          \$headers = @{
-            "Authorization" = \$basicAuth
-          }
-          
-          # Preparamos el cuerpo de datos exacto que exige el protocolo OCS de Pling
-          \$body = @{
-            "version"          = \$env:VERSION
-            "description"      = \$descripcionFinal
-            "downloadlinkover" = "1"
-            "downloadlink1"    = \$env:RELEASE_URL
-          }
-          
-          # URL definitiva de la API apuntando al endpoint de edición del producto
-          \(prodId =\)env:PROD_ID
-          \(url = "https://opendesktop.org\)prodId"
-          
-          # Lanzamos la petición REST nativa de Windows Server
-          Invoke-RestMethod -Uri \$url -Method Post -Headers \(headers -Body\)body
+          PLING_USER: \${{ secrets.PLING_USER }}
+          PLING_PASSWORD: \${{ secrets.PLING_PASSWORD }}
+          PRODUCT_ID: \${{ vars.PRODUCT_ID }}
+        with:
+          script: |
+            const crypto = require('crypto');
+
+            // 1. Obtener versión y URL del release
+            let version = "\${{ github.event.inputs.manual_version }}";
+            let releaseUrl = "";
+            let changelog = "";
+
+            if (version !== "") {
+              releaseUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/releases/tag/${version}`;
+              changelog = `Actualizacion manual desde GitHub Actions en Windows Server para la version ${version}.`;
+            } else {
+              version = context.payload.release ? context.payload.release.tag_name : "";
+              releaseUrl = context.payload.release ? context.payload.release.html_url : "";
+              changelog = context.payload.release ? context.payload.release.body : "";
+            }
+
+            if (!version) {
+              core.setFailed("No se pudo determinar la version. Escribela manualmente al lanzar el workflow.");
+              return;
+            }
+
+            // 2. Formatear el changelog para Pling (cambiar saltos de linea por <br>)
+            const changelogHtml = changelog.replace(/\r?\n/g, '<br>');
+            const descripcionFinal = `Icon pack updated to version ${version}.<br><br><strong>Changelog:</strong><br>${changelogHtml}<br><br>🔗 Download directly from GitHub: ${releaseUrl}`;
+
+            // 3. Crear cabecera de autenticacion Basic Auth (Cifra de forma segura tu contraseña con '\$')
+            const authString = `${process.env.PLING_USER}:${process.env.PLING_PASSWORD}`;
+            const base64Auth = Buffer.from(authString).toString('base64');
+
+            // 4. Preparar los datos en formato x-www-form-urlencoded
+            const params = new URLSearchParams();
+            params.append('version', version);
+            params.append('description', descripcionFinal);
+            params.append('downloadlinkover', '1');
+            params.append('downloadlink1', releaseUrl);
+
+            const url = `https://opendesktop.org{process.env.PRODUCT_ID}`;
+
+            console.log(`Enviando actualizacion de version ${version} a Pling (ID: ${process.env.PRODUCT_ID})...`);
+
+            // 5. Lanzar la peticion HTTP POST nativa
+            fetch(url, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Basic ${base64Auth}`,
+                'Content-Type': 'application/x-www-form-urlencoded'
+              },
+              body: params.toString()
+            })
+            .then(res => {
+              console.log(`Respuesta de la API de Pling (Codigo HTTP): ${res.status}`);
+              if (res.status >= 400) {
+                core.setFailed(`Error en la API de Pling: Codigo ${res.status}`);
+              } else {
+                console.log("¡Sincronizacion con Pling completada con exito!");
+              }
+            })
+            .catch(err => {
+              core.setFailed(`Fallo en la conexion: ${err.message}`);
+            });
