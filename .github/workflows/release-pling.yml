@@ -12,43 +12,47 @@ on:
 
 jobs:
   update-pling:
-    runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest # Todo el proceso bajo Arch Linux puro
+    runs-on: windows-2022 # Infraestructura Windows Server limpia
     steps:
-      - name: Instalar Python y dependencias en Arch
-        run: |
-          pacman -Sy --noconfirm python-pip curl
+      - name: Configurar Python en Windows Server
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
       - name: Instalar pling-publisher via PIP
+        shell: cmd
         run: |
-          # Instalamos la herramienta oficial de despliegue para Pling
-          pip install --break-system-packages pling-publisher
+          python -m pip install --upgrade pip
+          pip install pling-publisher
 
       - name: Obtener informacion del release
-        id: get_release
+        shell: cmd
         run: |
-          INPUT_VERSION="${{ github.event.inputs.manual_version }}"
+          SET "INPUT_VERSION=${{ github.event.inputs.manual_version }}"
           
-          if [ -n "$INPUT_VERSION" ]; then
-            echo "VERSION=$INPUT_VERSION" >> $GITHUB_ENV
-            echo "RELEASE_URL=${{ github.server_url }}/${{ github.repository }}/releases/tag/$INPUT_VERSION" >> $GITHUB_ENV
-          else
-            echo "VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
-            echo "RELEASE_URL=${{ github.event.release.html_url }}" >> $GITHUB_ENV
-          fi
+          IF NOT "%INPUT_VERSION%"=="" (
+            SET "VERSION=%INPUT_VERSION%"
+            SET "RELEASE_URL=${{ github.server_url }}/${{ github.repository }}/releases/tag/%INPUT_VERSION%"
+          ) ELSE (
+            SET "VERSION=${{ github.event.release.tag_name }}"
+            SET "RELEASE_URL=${{ github.event.release.html_url }}"
+          )
+          
+          echo VERSION=%VERSION%>>%GITHUB_ENV%
+          echo RELEASE_URL=%RELEASE_URL%>>%GITHUB_ENV%
 
-      - name: Publicar de verdad en Pling usando la herramienta oficial
+      - name: Publicar de verdad en Pling simulando el formulario
+        shell: cmd
         env:
           USER_SECRET: ${{ secrets.PLING_USER }}
           PASS_SECRET: ${{ secrets.PLING_PASSWORD }}
           PROD_ID: ${{ vars.PRODUCT_ID }}
         run: |
-          # pling-publisher simula el inicio de sesion del navegador y salta el bloqueo de la API.
-          # Le inyectamos tu ID de producto, la nueva version y la URL del release de GitHub.
-          pling-publisher \
-            --user "$USER_SECRET" \
-            --password "$PASS_SECRET" \
-            --product "$PROD_ID" \
-            --version "${{ env.VERSION }}" \
-            --description "Icon pack updated to version ${{ env.VERSION }}. Download the latest assets directly from GitHub: ${{ env.RELEASE_URL }}"
+          REM pling-publisher inicia sesion y fuerza los cambios saltandose el bug de la API
+          REM Las variables %USER_SECRET% y %PASS_SECRET% no procesan el '$' de tu clave, pasa intacto
+          pling-publisher ^
+            --user "%USER_SECRET%" ^
+            --password "%PASS_SECRET%" ^
+            --product "%PROD_ID%" ^
+            --version "%VERSION%" ^
+            --description "Icon pack updated to version %VERSION%. Download the latest assets directly from GitHub: %RELEASE_URL%"
