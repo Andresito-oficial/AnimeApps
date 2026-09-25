@@ -3,6 +3,12 @@ name: Publicar en Pling
 on:
   release:
     types: [published]
+  workflow_dispatch: # Permite la ejecución manual desde la web de GitHub
+    inputs:
+      manual_version:
+        description: 'Versión (ej. v1.0.1) - Dejar en blanco si usas el último Release'
+        required: false
+        default: ''
 
 jobs:
   update-pling:
@@ -11,24 +17,27 @@ jobs:
       - name: Obtener información del release y changelog
         id: get_release
         run: |
-          # Guardamos la versión y la URL del release en el entorno
-          VERSION="${{ github.event.release.tag_name }}"
-          RELEASE_URL="${{ github.event.release.html_url }}"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "RELEASE_URL=$RELEASE_URL" >> $GITHUB_ENV
+          # Si se ejecuta manualmente y se introduce una versión, la usamos.
+          # Si no, buscamos los datos del evento del Release de GitHub.
+          INPUT_VERSION="${{ github.event.inputs.manual_version }}"
           
-          # Capturamos el texto del Changelog del Release de GitHub
-          # Usamos un delimitador para guardar textos multilínea de forma segura
-          echo "CHANGELOG<<EOF" >> $GITHUB_ENV
-          echo "${{ github.event.release.body }}" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          if [ -n "$INPUT_VERSION" ]; then
+            echo "VERSION=$INPUT_VERSION" >> $GITHUB_ENV
+            echo "RELEASE_URL=${{ github.server_url }}/${{ github.repository }}/releases/tag/$INPUT_VERSION" >> $GITHUB_ENV
+            echo "CHANGELOG=Actualización manual de versión $INPUT_VERSION." >> $GITHUB_ENV
+          else
+            echo "VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+            echo "RELEASE_URL=${{ github.event.release.html_url }}" >> $GITHUB_ENV
+            
+            echo "CHANGELOG<<EOF" >> $GITHUB_ENV
+            echo "${{ github.event.release.body }}" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
 
       - name: Actualizar registro y Changelog en Pling vía API OCS
         run: |
-          # Formateamos el texto final sumando un enlace directo y las notas de cambios
           DESCRIPCION_FINAL="Icon pack updated to version ${{ env.VERSION }}.<br><br><strong>Changelog:</strong><br>${{ env.CHANGELOG }}<br><br>🔗 Download directly from GitHub: ${{ env.RELEASE_URL }}"
           
-          # Petición HTTP para actualizar versión, descripción y enlace de descarga externa
           curl --request POST \
             --url "https://${{ secrets.PLING_USER }}:${{ secrets.PLING_PASSWORD }}@api.opendesktop.org/ocs/v1/content/edit/${{ vars.PRODUCT_ID }}" \
             --data "version=${{ env.VERSION }}" \
