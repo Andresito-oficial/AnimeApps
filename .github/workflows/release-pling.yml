@@ -3,7 +3,7 @@ name: Publicar en Pling
 on:
   release:
     types: [published]
-  workflow_dispatch: # Permite la ejecución manual desde la web de GitHub
+  workflow_dispatch:
     inputs:
       manual_version:
         description: 'Versión (ej. v1.0.1) - Dejar en blanco si usas el último Release'
@@ -17,14 +17,12 @@ jobs:
       - name: Obtener información del release y changelog
         id: get_release
         run: |
-          # Si se ejecuta manualmente y se introduce una versión, la usamos.
-          # Si no, buscamos los datos del evento del Release de GitHub.
           INPUT_VERSION="${{ github.event.inputs.manual_version }}"
           
           if [ -n "$INPUT_VERSION" ]; then
             echo "VERSION=$INPUT_VERSION" >> $GITHUB_ENV
             echo "RELEASE_URL=${{ github.server_url }}/${{ github.repository }}/releases/tag/$INPUT_VERSION" >> $GITHUB_ENV
-            echo "CHANGELOG=Actualización manual de versión $INPUT_VERSION." >> $GITHUB_ENV
+            echo "CHANGELOG=Actualización manual desde GitHub Actions para la versión $INPUT_VERSION." >> $GITHUB_ENV
           else
             echo "VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
             echo "RELEASE_URL=${{ github.event.release.html_url }}" >> $GITHUB_ENV
@@ -35,12 +33,22 @@ jobs:
           fi
 
       - name: Actualizar registro y Changelog en Pling vía API OCS
+        # Mapeamos los secretos directamente como variables de entorno seguras para el paso
+        env:
+          USER_SECRET: ${{ secrets.PLING_USER }}
+          PASS_SECRET: ${{ secrets.PLING_PASSWORD }}
         run: |
-          DESCRIPCION_FINAL="Icon pack updated to version ${{ env.VERSION }}.<br><br><strong>Changelog:</strong><br>${{ env.CHANGELOG }}<br><br>🔗 Download directly from GitHub: ${{ env.RELEASE_URL }}"
+          # Convertimos los saltos de línea del changelog a formato HTML <br>
+          TEXTO_CAMBIOS=$(echo "${{ env.CHANGELOG }}" | sed ':a;N;$!ba;s/\n/<br>/g')
           
+          DESCRIPCION_FINAL="Icon pack updated to version ${{ env.VERSION }}.<br><br><strong>Changelog:</strong><br>${TEXTO_CAMBIOS}<br><br>🔗 Download directly from GitHub: ${{ env.RELEASE_URL }}"
+          
+          # Usamos las variables de entorno de Linux ($USER_SECRET y $PASS_SECRET) 
+          # Esto protege el '$' y los puntos de tu contraseña evitando que Bash los rompa
           curl --request POST \
-            --url "https://${{ secrets.PLING_USER }}:${{ secrets.PLING_PASSWORD }}@api.opendesktop.org/ocs/v1/content/edit/${{ vars.PRODUCT_ID }}" \
-            --data "version=${{ env.VERSION }}" \
-            --data "description=$DESCRIPCION_FINAL" \
-            --data "downloadlinkover=1" \
-            --data "downloadlink1=${{ env.RELEASE_URL }}"
+            --url "https://opendesktop.org{{ vars.PRODUCT_ID }}" \
+            --user "$USER_SECRET:$PASS_SECRET" \
+            --data-urlencode "version=${{ env.VERSION }}" \
+            --data-urlencode "description=${DESCRIPCION_FINAL}" \
+            --data-urlencode "downloadlinkover=1" \
+            --data-urlencode "downloadlink1=${{ env.RELEASE_URL }}"
