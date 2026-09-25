@@ -12,7 +12,7 @@ on:
 
 jobs:
   update-pling:
-    runs-on: ubuntu-latest
+    runs-on: windows-2022 # ¡Utiliza Windows Server 2022 nativo y limpio!
     steps:
       - name: Obtener información del release y changelog
         id: get_release
