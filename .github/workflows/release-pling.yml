@@ -33,20 +33,19 @@ jobs:
           fi
 
       - name: Actualizar registro y Changelog en Pling vía API OCS
-        # Mapeamos los secretos directamente como variables de entorno seguras para el paso
         env:
           USER_SECRET: ${{ secrets.PLING_USER }}
           PASS_SECRET: ${{ secrets.PLING_PASSWORD }}
+          PROD_ID: ${{ vars.PRODUCT_ID }}
         run: |
           # Convertimos los saltos de línea del changelog a formato HTML <br>
           TEXTO_CAMBIOS=$(echo "${{ env.CHANGELOG }}" | sed ':a;N;$!ba;s/\n/<br>/g')
           
           DESCRIPCION_FINAL="Icon pack updated to version ${{ env.VERSION }}.<br><br><strong>Changelog:</strong><br>${TEXTO_CAMBIOS}<br><br>🔗 Download directly from GitHub: ${{ env.RELEASE_URL }}"
           
-          # Usamos las variables de entorno de Linux ($USER_SECRET y $PASS_SECRET) 
-          # Esto protege el '$' y los puntos de tu contraseña evitando que Bash los rompa
+          # Extraemos también el ID de producto como variable de entorno para limpiar la URL de llaves
           curl --request POST \
-            --url "https://opendesktop.org{{ vars.PRODUCT_ID }}" \
+            --url "https://opendesktop.org" \
             --user "$USER_SECRET:$PASS_SECRET" \
             --data-urlencode "version=${{ env.VERSION }}" \
             --data-urlencode "description=${DESCRIPCION_FINAL}" \
