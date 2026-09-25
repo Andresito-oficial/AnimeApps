@@ -50,7 +50,7 @@ jobs:
         run: |
           REM pling-publisher inicia sesion y fuerza los cambios saltandose el bug de la API
           REM Las variables %USER_SECRET% y %PASS_SECRET% no procesan el '$' de tu clave, pasa intacto
-          pling-publisher ^
+          python -m pling-publisher ^
             --user "%USER_SECRET%" ^
             --password "%PASS_SECRET%" ^
             --product "%PROD_ID%" ^
