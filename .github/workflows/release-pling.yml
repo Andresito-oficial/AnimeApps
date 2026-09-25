@@ -12,7 +12,7 @@ on:
 
 jobs:
   update-pling:
-    runs-on: windows-2022 # ¡Utiliza Windows Server 2022 nativo y limpio!
+    runs-on: windows-2022
     steps:
       - name: Obtener información del release y changelog en Windows
         id: get_release
@@ -32,11 +32,11 @@ jobs:
           "@
           }
           
-          # Guardamos las variables en el entorno de GitHub Actions (sintaxis Windows)
+          # Guardamos las variables en el entorno global de GitHub Actions
           Add-Content -Path \(env:GITHUB_ENV -Value "VERSION=\)version"
           Add-Content -Path \(env:GITHUB_ENV -Value "RELEASE_URL=\)releaseUrl"
           
-          # Convertimos los saltos de línea a formato HTML <br> para Pling
+          # Convertimos los saltos de línea de Windows e independientes a formato HTML <br> para Pling
           changelogHtml = changelog -replace "`r`n", "<br>" -replace "`n", "<br>"
           Add-Content -Path \(env:GITHUB_ENV -Value "CHANGELOG=\)changelogHtml"
 
@@ -47,28 +47,30 @@ jobs:
           PASS_SECRET: \${{ secrets.PLING_PASSWORD }}
           PROD_ID: \${{ vars.PRODUCT_ID }}
         run: |
+          # Formateamos la descripción final uniendo las variables del paso anterior
           \$descripcionFinal = "Icon pack updated to version (env:VERSION).<br><br><strong>Changelog:</strong><br>(env:CHANGELOG)<br><br>🔗 Download directly from GitHub: (env:RELEASE_URL)"
           
-          # Construimos la autenticación Basic para evitar problemas con el signo '\$' de tu contraseña
+          # Construimos la cabecera HTTP Basic Auth cifrando el par usuario:contraseña en Base64
+          # Esto evita por completo que el signo '\$' de tu contraseña rompa el script
           \$pair = "(env:USER_SECRET):(env:PASS_SECRET)"
           \(bytes = [System.Text.Encoding]::ASCII.GetBytes(\)pair)
           \(base64 = [System.Convert]::ToBase64String(\)bytes)
           basicAuth = "Basic base64"
           
-          # Cabeceras de la petición
           \$headers = @{
             "Authorization" = \$basicAuth
           }
           
-          # Cuerpo de los datos codificado en formato URL
+          # Preparamos el cuerpo de datos exacto que exige el protocolo OCS de Pling
           \$body = @{
-            "version" = \$env:VERSION
-            "description" = \$descripcionFinal
+            "version"          = \$env:VERSION
+            "description"      = \$descripcionFinal
             "downloadlinkover" = "1"
-            "downloadlink1" = \$env:RELEASE_URL
+            "downloadlink1"    = \$env:RELEASE_URL
           }
           
+          # URL definitiva de la API apuntando al endpoint de edición del producto
           \$url = "https://opendesktop.org"
           
-          # Realizamos la petición HTTP POST usando PowerShell nativo de Windows Server
+          # Lanzamos la petición REST nativa de Windows Server
           Invoke-RestMethod -Uri \$url -Method Post -Headers headers -Body body
